@@ -2,6 +2,7 @@
 #ifndef DISPUTE_H_
 #define DISPUTE_H_
 
+
 #define NDEBUG
 
 #include <assert.h>
@@ -11,7 +12,6 @@
 using namespace std;
 
 class Dispute{
-  // dummy class
 
 private:
   int _N, _T, _nCorr;
@@ -25,10 +25,41 @@ public:
   Dispute();
   ~Dispute();
 
+  void reset(int N);
+  void addDispPairs(int p1, int p2);
+  void addCorrParty(int p);
+
+  int tSet(vector<int>& TSet);
+  int nonTSet(vector<int>& NonTSet);
+  int tAndNonTSet(vector<int>& TSet, vector<int>& NonTSet);
+  void tAndNonTSetP(int p, vector<int>& TSet, vector<int>& NonTSet);
+  void corrSet(vector<int>& corrs);
+  int dispAndNonDispSet(int p, vector<int>& DispSet, vector<int>& NonDispSet);
+  int twistSet(int p, int target, vector<int>& TwistSet);
+  
+  bool rlyeeVecs(int p, vector<int>& relay, vector<bool>& relayerMask,
+                 vector<vector<int>>& relayerLoad);
+  bool rlyerVecs(int p, vector<bool>& relayeeMask,
+                 vector<vector<int>>& relayeeLoad);
+  int tMask(vector<bool>& TMask);
   void tMaskP(int p, vector<bool>& TMask);
   void tMaskPRev(int p, vector<bool>& TMaskRev);
-  void tAndNonTSetP(int p, vector<int>& TSet, vector<int>& NonTSet);
-  void reset(int N);
+  
+  void corrMask(vector<bool>& cMask) { cMask = _corr;}
+  void nonDispMask(int p, vector<bool> &dMask) {
+    dMask.resize(_N);
+    for (int i=0; i<_N; i++) { dMask[i] = !_disp[p][i]; }
+  }
+  bool hasCorrupt() {return (_nCorr > 0);}
+  int nCorrupt() {return _nCorr;}
+  bool hasDisp() {return _hasDisp;};
+  bool hasDisp(int p) {return (_dispSize[p] > 0);};
+  bool isCorrupt(int p) {return _corr[p];}
+  bool isDisp(int myId, int p) {return _disp[myId][p];}
+  void setNewDisp(bool newDisp) {_newDisp = newDisp;}
+  bool getNewDisp() {return _newDisp;}
+
+  // void getDisp(int p, vector<bool>& disp) {disp = _disp[p];};
 };
 
 

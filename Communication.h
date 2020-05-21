@@ -36,20 +36,34 @@ public:
   void reset(int N, int myId, int numThreads,
              string partiesFile, Dispute* disp_pt);
   // w/o relay round functions
+  void kingToT(int king, vector<byte> &myShare, vector<vector<byte>> &sendBufs);
+  void TToKing(int king, vector<byte> &myShare, vector<vector<byte>> &recBufs);
   void allToT(vector<vector<byte>> &sendBufs, vector<vector<byte>> &recBufs);
   // w/ relay round functions
   void allToAll(vector<vector<byte>> &sendBufs, vector<vector<byte>> &recBufs, bool relay = true);
   void allToOne(vector<byte> &myShare, vector<vector<byte>> &recBufs, int king, bool relay = true);
   void oneToAll(vector<byte> &myShare, vector<vector<byte>> &sendBufs, int king, bool relay = true);
-
+  // relayee helpers
+  void recFromRelay(vector<vector<byte>>& recBufs, vector<bool>& relayerMask,
+                    vector<vector<int>>& relayerLoad, int sendSize);
+  void sendToRelay(vector<vector<byte>>& sendBufs, vector<bool>& relayerMask,
+                   vector<vector<int>>& relayerLoad, int recSize);
+  // relayer helpers
+  void allToOneRelay(vector<int>& relayLoad, int king, int sendSize);
+  void oneToAllRelay(vector<int>& relayLoad, int king, int recSize);
+  // all-to-all relay helper (for both relayer and relayee)
+  void allToAllRelay(vector<vector<byte>>& sendBufs, vector<vector<byte>>& recBufs);
+  void allToRelayer(vector<vector<byte>>& rSendBufs, vector<vector<byte>>& relayBufs,
+                    vector<bool>& rlyerMask, vector<bool>& rlyeeMask,
+                    bool isRelayer, bool isRelayee);
+  void relayerToAll(vector<vector<byte>>& rSendBufs, vector<vector<byte>>& rRecBufs,
+                    vector<bool>& rlyerMask, vector<bool>& rlyeeMask,
+                    bool isRelayer, bool isRelayee);
   // thread functions
-  void rwWorkerM(vector<vector<byte>> &sendBufs, vector<vector<byte>> &recBufs,
-                vector<bool>& readMask, vector<bool>& writeMask, int id);
-  void rWorker(vector<vector<byte>> &recBufs, int id);
-  void wWorker(vector<vector<byte>> &sendBufs, int id);
+  void rWorker(vector<vector<byte>> &recBufs, vector<bool>& mask, int id);
+  void wWorker(vector<vector<byte>> &sendBufs, vector<bool>& mask, int id);
   void rwWorker(vector<vector<byte>> &sendBufs, vector<vector<byte>> &recBufs,
-                int id);
-  
+                vector<bool>& readMask, vector<bool>& writeMask, int id);
 };
 
 
