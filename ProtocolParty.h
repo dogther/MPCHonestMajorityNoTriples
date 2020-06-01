@@ -391,10 +391,12 @@ public:
   // -- external access for runLasso
   int getN() {return _N;}
   int getT() {return _T;}
+  int getK() {return _K;}
   int getMyId() {return _myId;}
   TemplateField<FieldType>* getField() {return _field;}
   void DNMultVec(vector<FieldType>& aShares, vector<FieldType>& bShares,
                  vector<FieldType>& cShares, int groupSize);
+  bool preparationPhase(int nCoin, int nSingle, int nDouble, int nTwise);
   Communication _comm;
   __inline__
   void makeTShares(vector<FieldType>& secrets, vector<vector<FieldType>>& fullSharesVec) {
@@ -436,6 +438,8 @@ ProtocolParty<FieldType>::ProtocolParty(int argc, char *argv[])
   if (fieldType.compare("ZpMersenne31") == 0) {
     _field = new TemplateField<FieldType>(2147483647);
   } else if (fieldType.compare("ZpMersenne61") == 0) {
+    _field = new TemplateField<FieldType>(0);
+  } else if (fieldType.compare("ZpMersenne127")==0) {
     _field = new TemplateField<FieldType>(0);
   } else {
     cout << "don't use other fields yet" << endl;
@@ -1459,6 +1463,39 @@ void ProtocolParty<FieldType>::initializeMat() {
   _mat_vand_trans.InitVDMTranspose();
 }
 
+template <class FieldType> bool ProtocolParty<FieldType>::
+preparationPhase(int nCoin, int nSingle, int nDouble, int nTwise) {
+  if (_disp.getNewDisp()) {     // update matrices w/ new disp
+    // -- prepare mat for normal sharing
+    matForRefresh(_myId, _mat_from_T, _mat_to_T);
+    // -- prepare mat for twisted sharing
+    matForTwist(_myId, _mat_twist_vec);
+    _disp.tMaskP(_myId, _TMask);
+  }
+  // assuming semi-honest
+  cout << "used shares: " << endl
+       << "coin: " << _coinOffset << " / " << nCoin << endl
+       << "single: " << _padOffset << " / " << nSingle << endl
+       << "double: " << _doubleOffset << " / " << nDouble << endl
+       << "twise: " << _twiseOffset << " / " << nTwise << endl;
+  
+  _coinOffset = 0;
+  _padOffset = 0;
+  // no refresh used in semi-honest
+  makeRandShares(nCoin, _coinShares); // improve: optimize
+  makeRandShares(nSingle, _padShares);
+
+  _doubleOffset = 0;
+  makeRandDoubleShares(nDouble, _doubleShares);
+  _twiseOffset = 0;
+  makeTwiseDoubleShares(nTwise, _twiseShares, _twiseKingIds);
+
+  // ---- allocate transcript buffers for current segment
+  _e1ShareIdx.clear();
+  _deltOShares.clear();
+  return true;
+}
+
 template <class FieldType> bool ProtocolParty<FieldType>::prepareSeg() {
   // ---- # of random single shares:
   // 1. Padding before reveal
@@ -1794,16 +1831,17 @@ DNMultVec(vector<FieldType>& a, vector<FieldType>& b,
       e2Shares[group_i] += a[i] * b[i];
     }
     e2Shares[group_i] = e2Shares[group_i] -
-      _doubleShares[(_doubleOffset + group_i)*2 +1];
+      _twiseShares[(_twiseOffset + group_i)*2 +1];
   }
 
   batchMultSpread(e2Shares, e1Shares);
   // -- compute xy - r + [r]_t = t-sharing of xy
+  cShares.resize(nMults);
   for (int group_i = 0; group_i < nMults; group_i++) {
-    cShares[group_i] = _doubleShares[(_doubleOffset + group_i)*2] + e1Shares[group_i];
+    cShares[group_i] = _twiseShares[(_twiseOffset + group_i)*2] + e1Shares[group_i];
   }
 
-  _doubleOffset += nMults;
+  _twiseOffset += nMults;
 }
 
 template <class FieldType>
@@ -1846,6 +1884,7 @@ template <class FieldType>
 void ProtocolParty<FieldType>::
 openTShares(int nShares, bool check,
             vector<FieldType> &shares, vector<FieldType> &clears) {
+  clears.resize(nShares);
   vector<byte> sharesByte(nShares * _fieldByteSize);
   _field->elementVectorToByteVector(shares, sharesByte);
   vector<vector<byte>> sendBufs(_N, sharesByte),
