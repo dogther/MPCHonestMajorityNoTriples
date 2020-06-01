@@ -34,7 +34,7 @@ class CompareGate
 		//fixed-point floats, 32 decimals
 		//can it work?
 		int _k = 62;
-		int _m = 48;
+		int _m = 52;
 		int _kappa = 0;
 		int iteration;
 		int m_partyID;
@@ -1634,10 +1634,11 @@ template <class FieldType> void CompareGate<FieldType>::runOffline() {
   int dim = _Ai.size();
   int cnt = 40 * dim * dim  * n_iter * eleSize / 10;
   cnt = cnt * 2 / 80;
-  cnt = cnt / 10;         // per iteration cost should roughly be 1/10
+  //cnt = cnt / 10;         // per iteration cost should roughly be 1/10
 
   // TODO: change for gas dataset
   int cnt_bit = 6 * dim;
+  cnt_bit *= 10;
   if (helper->preparationPhase(n_iter*5,
                                cnt_bit*eleSize+n_iter*2,
                                n_iter*60,
