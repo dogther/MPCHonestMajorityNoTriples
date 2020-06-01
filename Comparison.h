@@ -1638,7 +1638,7 @@ template <class FieldType> void CompareGate<FieldType>::runOffline() {
 
   // TODO: change for gas dataset
   int cnt_bit = 6 * dim;
-  cnt_bit *= 10;
+  cnt_bit *= 5;
   if (helper->preparationPhase(n_iter*5,
                                cnt_bit*eleSize+n_iter*2,
                                n_iter*60,
