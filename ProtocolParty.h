@@ -27,7 +27,7 @@
 #include <libscapi/include/circuits/ArithmeticCircuit.hpp>
 
 #define flag_print_output false
-#define flag_print true
+#define flag_print false
 
 using namespace std;
 // using namespace std::chrono;
