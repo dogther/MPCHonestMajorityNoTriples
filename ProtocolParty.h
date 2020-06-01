@@ -25,10 +25,9 @@
 #include <libscapi/include/comm/MPCCommunication.hpp>
 #include <libscapi/include/primitives/Matrix.hpp>
 #include <libscapi/include/circuits/ArithmeticCircuit.hpp>
-#include <libscapi/include/primitives/Prg.hpp>
 
 #define flag_print_output false
-#define PRG_KEY_SIZE 16
+#define flag_print true
 
 using namespace std;
 // using namespace std::chrono;
@@ -52,7 +51,7 @@ private:
   int _fieldByteSize, _segSize, _nSegs, _authKeySize;
   
   // -- communication channels and dispute sets
-  Communication _comm;
+  // Communication _comm;          // moved to public
   Dispute _disp;
   
   // -- various matrices set in constructor
@@ -67,7 +66,6 @@ private:
   vector<FieldType> _buffer;    // for interp to a sinlge element
 
   // -- local storage: global
-  vector<PrgFromOpenSSLAES> _prgs;       // one prg per pair
   vector<FieldType> _gateShares;         // my share of each gate
   vector<vector<FieldType>> _deltShares; // shares I delt: accumulated
   vector<vector<FieldType>> _kingShares; // shares I reconstructed as king
@@ -100,7 +98,6 @@ private:
   HIM<FieldType> _mat_to_T;    // for calculating share of T set
   HIM<FieldType> _mat_from_T;  // for calculating share of nonT set
   vector<bool> _TMask;         //
-  vector<bool> _TMaskRev;      //
   vector<HIM<FieldType>> _mat_twist_vec;
   bool _newDisp = true;         // flag new Disp pair added
 
@@ -117,13 +114,6 @@ private:
     assert(fullShares.size() == _N);
     _mat_use_n.MatrixMult(fullShares, _buffer);
     return _buffer[0];
-  }
-
-  __inline__
-  void getPadShares(int nRands, vector<FieldType> &result) {
-      result.assign(_padShares.begin() + _padOffset,
-                    _padShares.begin() + _padOffset + nRands);
-      _padOffset += nRands;
   }
 
   __inline__
@@ -205,97 +195,6 @@ private:
     }
   }
 
-  __inline__
-  FieldType prgForP(int pid) {
-    vector<byte> prgBytes(_fieldByteSize);
-    _prgs[pid].getPRGBytes(prgBytes, 0, _fieldByteSize);
-    return _field->bytesToElement(prgBytes.data());
-  }
-
-  __inline__
-  void makeTShares(vector<FieldType>& secrets, vector<vector<FieldType>>& fullSharesVec) {
-    int nShares = secrets.size();
-    fullSharesVec.clear();
-    fullSharesVec.resize(_N, vector<FieldType>(nShares));    
-    vector<int> NonTSet, TSet;
-    _disp.tAndNonTSetP(_myId, TSet, NonTSet);
-    vector<FieldType> nonTShares(_N-_T), TShares(_T+1);
-    for (int i=0; i<nShares; i++) {
-      nonTShares[_N-_T-1] = secrets[i]; // NonTSet's end is position 0
-      for (int j=0; j<_N-_T-1; j++) {
-        int pnt = NonTSet[j];     // vvv disp shares to 0
-        nonTShares[j] = _disp.isDisp(_myId, pnt) ? _zero : prgForP(pnt);
-        fullSharesVec[pnt][i] = nonTShares[j];
-      }
-      _mat_to_T.MatrixMult(nonTShares, TShares);
-      for (int j=0; j<_T+1; j++) {
-        int pt = TSet[j];
-        fullSharesVec[pt][i] = TShares[j];
-      }
-    }
-  }
-
-  __inline__
-  void makeTSharesPrg(vector<FieldType>& secrets, vector<vector<FieldType>>& fullSharesVec,
-                      vector<vector<FieldType>>& prgRecShares) {
-    // use PRG:
-    // 1. needs to know how many shares will "receive" from each pair
-    //    (passed by size)
-    // 2. if i >= _myId, "receive" before "send"
-    // 3. store "received" shares
-    for (int i=_myId+1; i<_N; i++) {
-      if (_disp.isDisp(_myId, i)) { // will not "receive" prg shares
-        continue;
-      }
-      if (_TMaskRev[i]) {       // will receive actual shares
-        continue;
-      }
-      int nRand = prgRecShares[i].size();
-      for (int j=0; j<nRand; j++) {
-        prgRecShares[i][j] = prgForP(i);
-      }
-    }
-    makeTShares(secrets, fullSharesVec); // "send" prg shares to NonT parties
-    for (int i=0; i<_myId; i++) {
-      if (_disp.isDisp(_myId, i)) { // will not "receive" prg shares
-        continue;
-      }
-      if (_TMaskRev[i]) {       // will receive actual shares
-        continue;
-      }
-      int nRand = prgRecShares[i].size();
-      for (int j=0; j<nRand; j++) {
-        prgRecShares[i][j] = prgForP(i);
-      }
-    }
-  }
-
-  __inline__
-  void make2TSharesPrg(int nShares, vector<FieldType>& secrets,
-                       vector<vector<FieldType>>& fullSharesVec,
-                       vector<vector<FieldType>>& prgRecShares) {
-    // use PRG: similar to makeTSharesPrg()
-    for (int i=_myId+1; i<_N; i++) { // skip myself
-      if (_disp.isDisp(_myId, i)) { // will not "receive" prg shares
-        continue;
-      }
-      int nRand = prgRecShares[i].size();
-      for (int j=0; j<nRand; j++) {
-        prgRecShares[i][j] = prgForP(i);
-      }
-    }
-    make2TShares(nShares, secrets, fullSharesVec);
-    prgRecShares[_myId] = fullSharesVec[_myId];
-    for (int i=0; i<_myId; i++) {
-      if (_disp.isDisp(_myId, i)) { // will not "receive" prg shares
-        continue;
-      }
-      int nRand = prgRecShares[i].size();
-      for (int j=0; j<nRand; j++) {
-        prgRecShares[i][j] = prgForP(i);
-      }
-    }
-  }
 
   __inline__
   void make2TShares(int nShares, vector<FieldType>& secrets,
@@ -306,7 +205,7 @@ private:
     vector<FieldType> doubleShares(_N);
     for (int i=0; i<nShares; i++) {
       for (int j=0; j<_N; j++) {  // vvv disp shares = 0
-        doubleShares[j] = _disp.isDisp(_myId, j) ? _zero : prgForP(j);
+        doubleShares[j] = _disp.isDisp(_myId, j) ? _zero : _field->Random();
         fullSharesVec[j][i] = doubleShares[j]; 
       }
       secrets[i] = getSecret(doubleShares);
@@ -436,10 +335,13 @@ public:
   int processNonMult(int layerStart, int layerEnd);
   void delinearization(int king, int segStart, int segEnd, vector<FieldType>& aShares,
                        vector<FieldType>& bShares, vector<FieldType>& transcript);
+  void delinearizationHelper(int king, vector<vector<FieldType>>& aShares,
+                             vector<vector<FieldType>>& bShares,
+                             vector<FieldType>& cShares, vector<FieldType>& aSharesKing,
+                             vector<FieldType>& bSharesKing, vector<FieldType>& transcript);
   
   // -- main protocol functions
   void run() override;
-  void setUpSeeds();
   bool runOffline(int segStart, int segEnd);
   bool prepareSeg();
   void makeRandShares(int nRands, vector<FieldType> &randShares);
@@ -485,6 +387,44 @@ public:
   void multVec(int king, vector<FieldType>& aShares, vector<FieldType>& bShares,
                vector<vector<FieldType>>& transcripts, int groupSize);
   void openTShares(int nShares, bool check, vector<FieldType> &Shares, vector<FieldType> &clears);
+
+  // -- external access for runLasso
+  int getN() {return _N;}
+  int getT() {return _T;}
+  int getMyId() {return _myId;}
+  TemplateField<FieldType>* getField() {return _field;}
+  void DNMultVec(vector<FieldType>& aShares, vector<FieldType>& bShares,
+                 vector<FieldType>& cShares, int groupSize);
+  Communication _comm;
+  __inline__
+  void makeTShares(vector<FieldType>& secrets, vector<vector<FieldType>>& fullSharesVec) {
+    int nShares = secrets.size();
+    fullSharesVec.clear();
+    fullSharesVec.resize(_N, vector<FieldType>(nShares));    
+    vector<int> NonTSet, TSet;
+    _disp.tAndNonTSetP(_myId, TSet, NonTSet);
+    vector<FieldType> nonTShares(_N-_T), TShares(_T+1);
+    for (int i=0; i<nShares; i++) {
+      nonTShares[_N-_T-1] = secrets[i]; // NonTSet's end is position 0
+      for (int j=0; j<_N-_T-1; j++) {
+        int pnt = NonTSet[j];     // vvv disp shares to 0
+        nonTShares[j] = _disp.isDisp(_myId, pnt) ? _zero : _field->Random();
+        fullSharesVec[pnt][i] = nonTShares[j];
+      }
+      _mat_to_T.MatrixMult(nonTShares, TShares);
+      for (int j=0; j<_T+1; j++) {
+        int pt = TSet[j];
+        fullSharesVec[pt][i] = TShares[j];
+      }
+    }
+  }
+  
+  __inline__
+  void getPadShares(int nRands, vector<FieldType> &result) {
+      result.assign(_padShares.begin() + _padOffset,
+                    _padShares.begin() + _padOffset + nRands);
+      _padOffset += nRands;
+  }
 };
 
 template <class FieldType>
@@ -540,16 +480,14 @@ template <class FieldType> void ProtocolParty<FieldType>::run() {
   const auto& gates = _circuit.getGates();
   
   for (int i = 0; i < _iterations; i++) {
-    // use PRG: generate and store pairwise random seed
     int segStart = 0;
     int segEnd = 0;
-    setUpSeeds();
     for (int curSeg = 0; curSeg < _nSegs; curSeg++){
-      // if (curSeg == 2) {        // TODO: delete this, test only
-      //   _disp.addDispPairs(0, 1);
-      //   _disp.addDispPairs(2, 3);
-      //   _disp.addCorrParty(0);
-      // }
+      if (curSeg == 2) {        // TODO: delete this, test only
+        _disp.addDispPairs(0, 1);
+        _disp.addDispPairs(2, 3);
+        _disp.addCorrParty(0);
+      }
       
       if (_disp.isCorrupt(_myId)) {
         segMsg(segStart, segEnd, "I'm corrupt, abort.");
@@ -575,42 +513,12 @@ template <class FieldType> void ProtocolParty<FieldType>::run() {
 }
 
 template <class FieldType>
-void ProtocolParty<FieldType>::setUpSeeds() {
-  // use PRG:
-  // 1. generate and send pairwise random seeds
-  // 2. store 1 prg per pair
-  _prgs.resize(_N);
-  int seedSize = (PRG_KEY_SIZE + _fieldByteSize -1) / _fieldByteSize;
-  vector<vector<FieldType>> seeds(_N, vector<FieldType>(seedSize, _zero));
-  for (int i=_myId; i<_N; i++) {
-    // for pair (_myId, i), use mine if i >= _myId
-    for (int j=0; j<seedSize; j++) {
-      seeds[i][j] = _field->Random();
-    }
-  }
-  vector<vector<byte>> sendBufs(_N, vector<byte>(seedSize * _fieldByteSize)),
-    recBufs(_N, vector<byte>(seedSize * _fieldByteSize));
-  for (int i=_myId; i<_N; i++) {
-    _field->elementVectorToByteVector(seeds[i], sendBufs[i]);
-  }
-  _comm.allToAll(sendBufs, recBufs, false); // no relay
-  for (int i=0; i<_N; i++) {
-    vector<byte> curKeyByte(PRG_KEY_SIZE);
-    auto byteStart = (i >= _myId) ? sendBufs[i].begin() : recBufs[i].begin();
-    copy(byteStart, byteStart+PRG_KEY_SIZE, curKeyByte.begin());
-    SecretKey curKey(curKeyByte, "aes");
-    _prgs[i].setKey(curKey);
-  }
-}
-  
-template <class FieldType>
 bool ProtocolParty<FieldType>::runOffline(int segStart, int segEnd) {
   if (_disp.getNewDisp()) {     // update matrices w/ new disp
     // -- prepare mat for normal sharing
     matForRefresh(_myId, _mat_from_T, _mat_to_T);
     // -- prepare mat for twisted sharing
     matForTwist(_myId, _mat_twist_vec);
-    _disp.tMaskPRev(_myId, _TMaskRev);
     _disp.tMaskP(_myId, _TMask);
   }
   
@@ -737,37 +645,70 @@ bool ProtocolParty<FieldType>::verificationPhase(int segStart, int segEnd) {
 
 template <class FieldType>
 void ProtocolParty<FieldType>::
+delinearizationHelper(int king,                           // in
+                      vector<vector<FieldType>>& aShares, // in
+                      vector<vector<FieldType>>& bShares, // in
+                      vector<FieldType>& cShares,         // in
+                      vector<FieldType>& aSharesKing,     // out
+                      vector<FieldType>& bSharesKing,     // out
+                      vector<FieldType>& transcript){     // out
+  // assuming semi-honest
+  transcript.resize(5, _zero);  // r1 r2 e1 e2 z
+  FieldType lambda = challenge();
+  FieldType lambdaI = lambda;
+  int nMults = aShares.size();
+  aSharesKing.clear();
+  aSharesKing.resize(nMults, _zero);
+  bSharesKing.clear();
+  bSharesKing.resize(nMults, _zero);
+  int idx = 0;
+  for (int i=0; i<nMults; i++) {
+    if(_twiseKingIds[i] == king) { // only collect for king
+      for(int j=0; j<aShares[i].size(); j++) {
+        aSharesKing[idx] = aShares[i][j];
+        // TODO: imple refresh for inner products later
+        // if (_disp.hasCorrupt()) {
+        //   aSharesKing[i] = aShares[i] - _recOShares[i];
+        // }
+        bSharesKing[idx] =  bShares[i][j] * lambdaI;
+        transcript[3] += aShares[i][j] * bShares[i][j]; // e2
+        idx++;
+      }
+      transcript[0] += _twiseShares[i*2] * lambdaI;          // r1
+      transcript[1] += _twiseShares[i*2+1] * lambdaI;        // r2
+      transcript[2] += _recShares[_e1ShareIdx[i]] * lambdaI; // e1
+      transcript[3] =                                        // 
+        (transcript[3] - _twiseShares[i*2+1]) * lambdaI;     // e2
+      transcript[4] += cShares[i] * lambdaI;                 // z
+      lambdaI *= lambda;
+    }
+  }
+}
+
+template <class FieldType>
+void ProtocolParty<FieldType>::
 delinearization(int king, int segStart, int segEnd, vector<FieldType>& aShares,
                 vector<FieldType>& bShares, vector<FieldType>& transcript){
   // collect only shares of a specific king
-  aShares.resize(_segSize);
-  bShares.resize(_segSize);
-  transcript.resize(5, _zero);
-  FieldType lambda = challenge();
-  FieldType lambdaI = lambda;
+  vector<vector<FieldType>> aSharesAll(_segSize), bSharesAll(_segSize);
+  vector<FieldType> cSharesAll(_segSize);
+
   int multCount = 0;
   for (int k = segStart; k < segEnd; k++) {
     auto& gate = _circuit.getGates()[k];
     if(gate.gateType == MULT) {
-      if(_twiseKingIds[multCount] == king) { // only collect for king
-        aShares[multCount] = _gateShares[gate.input1];
-        if (_disp.hasCorrupt()) {
-          aShares[multCount] = aShares[multCount] - _recOShares[multCount];
-        }
-        bShares[multCount] = _gateShares[gate.input2] * lambdaI;
-        transcript[0] += _twiseShares[multCount*2] * lambdaI;
-        transcript[1] += _twiseShares[multCount*2+1] * lambdaI;
-        transcript[2] += _recShares[_e1ShareIdx[multCount]] * lambdaI;
-        transcript[3] += (aShares[multCount] * bShares[multCount] -
-                          _twiseShares[multCount*2+1]) * lambdaI;
-        transcript[4] += _gateShares[gate.output] * lambdaI;
-        lambdaI *= lambda;
-      }
+      aSharesAll[multCount] = vector<FieldType>(1, _gateShares[gate.input1]);
+      bSharesAll[multCount] = vector<FieldType>(1, _gateShares[gate.input2]);
+      cSharesAll[multCount] = _gateShares[gate.output];
       multCount++;
     }
   }
-  aShares.resize(multCount);
-  bShares.resize(multCount);
+  aSharesAll.resize(multCount);
+  bSharesAll.resize(multCount);
+  cSharesAll.resize(multCount);
+
+  delinearizationHelper(king, aSharesAll, bSharesAll, cSharesAll,
+                        aShares, bShares, transcript);
 }
 
 template <class FieldType>
@@ -1009,38 +950,27 @@ template <class FieldType> void ProtocolParty<FieldType>::inputPhase() {
   vector<FieldType> secrets;
   readMyInputs(sizes[_myId], secrets);
   
-  vector<vector<FieldType>> inputSharesAll, prgRecShares(_N);
-  for (int i=0; i<_N; i++) {
-    prgRecShares[i].resize(sizes[i], _zero);
-  }
-  makeTSharesPrg(secrets, inputSharesAll, prgRecShares);
+  vector<vector<FieldType>> inputSharesAll;
+  makeTShares(secrets, inputSharesAll);
   recordDeltShares(inputSharesAll, _deltShares);
   vector<vector<byte>> sendBufs, recBufs(_N);
   sendBufs.resize(_N, vector<byte>(sizes[_myId] * _fieldByteSize));
   for (int i = 0; i < _N; i++) {
-    if (_TMask[i]) {
       _field->elementVectorToByteVector(inputSharesAll[i], sendBufs[i]);
-    }
-    if (_TMaskRev[i]) {
       recBufs[i].resize(sizes[i] * _fieldByteSize, 0);
-    }
   }
   for (int i=0; i<_N; i++) {
     if (!_disp.isCorrupt(i)) {
-      _comm.kingToT(i, recBufs[i], sendBufs);
+      _comm.oneToAll(recBufs[i], sendBufs, i, false);
     }
   }
   // -- convert received bytes to shares
   vector<vector<FieldType>> inputShares(_N);
   for (int i = 0; i < _N; i++) {
     inputShares[i].resize(sizes[i], _zero);
-    if (_TMaskRev[i]) {
-      for (int j = 0; j < sizes[i]; j++) { // receive actual shares
-        inputShares[i][j] =
-          _field->bytesToElement(recBufs[i].data() + (j * _fieldByteSize));
-      }      
-    } else  { // "receive" prg shares
-      inputShares[i] = prgRecShares[i];
+    for (int j = 0; j < sizes[i]; j++) { // receive actual shares
+      inputShares[i][j] =
+        _field->bytesToElement(recBufs[i].data() + (j * _fieldByteSize));
     }
     // vv record received shares and their dealer
     vector<int> idVec(sizes[i], i);
@@ -1067,31 +997,24 @@ makeRandShares(int nRands, vector<FieldType> &randShares) {
   for (int i=0; i<nBuckets; i++) {
     secrets[i] = _field->Random();
   }
-  vector<vector<FieldType>> randSharesAll(_N, vector<FieldType>(nBuckets)),
-    prgRecShares(_N, vector<FieldType>(nBuckets, _zero));
-  makeTSharesPrg(secrets, randSharesAll, prgRecShares);
+  vector<vector<FieldType>> randSharesAll(_N, vector<FieldType>(nBuckets));
+  makeTShares(secrets, randSharesAll);
   
   recordDeltShares(randSharesAll, _deltShares);
   vector<vector<byte>> sendBufs(_N, vector<byte>(nBuckets*_fieldByteSize));
   for (int i=0; i<_N; i++) {
-    if (_TMask[i]) {
-      _field->elementVectorToByteVector(randSharesAll[i], sendBufs[i]);
-    }
+    _field->elementVectorToByteVector(randSharesAll[i], sendBufs[i]);
   }
   vector<vector<byte>> recBufs(_N, vector<byte>(nBuckets*_fieldByteSize, 0));
-  _comm.allToT(sendBufs, recBufs);
+  _comm.allToAll(sendBufs, recBufs, false);
   
   int count = 0;
   vector<FieldType> bufferIn(_N), bufferOut(_N);
   for (int i=0; i<nBuckets; i++) { // improve: switch loop order
     for (int j=0; j<_N; j++) {
-      if (_TMaskRev[j]) {
-        bufferIn[j] =
-          _field->bytesToElement(recBufs[j].data() + i * _fieldByteSize);
-      } else {
-        bufferIn[j] = prgRecShares[j][i];
-      }
-      // record received share and its dealer id
+      bufferIn[j] =
+        _field->bytesToElement(recBufs[j].data() + i * _fieldByteSize);
+       // record received share and its dealer id
       _recShares.push_back(bufferIn[j]);
       _dealerIds.push_back(j);
     }
@@ -1111,32 +1034,32 @@ makeRandDoubleShares(int nRands, vector<FieldType> &randSharePairs) {
 
   vector<FieldType> secrets;
   vector<vector<FieldType>> dSharesAll, sharesAll,
-    prgRecShares(_N, vector<FieldType>(nBuckets, _zero)),
-    prgRecShares2T(_N, vector<FieldType>(nBuckets, _zero));
-  make2TSharesPrg(nBuckets, secrets, dSharesAll, prgRecShares2T);
-  makeTSharesPrg(secrets, sharesAll, prgRecShares);
+    randSharePairsAll(_N, vector<FieldType>(nBuckets*2));
+  make2TShares(nBuckets, secrets, dSharesAll);
+  makeTShares(secrets, sharesAll);
   // mix single and double shares
-  recordDeltShares(sharesAll, _deltShares);
-  vector<vector<byte>> sendBufs(_N, vector<byte>(nBuckets*_fieldByteSize));
-  for (int i=0; i<_N; i++) {
-    if (_TMask[i]) {
-      _field->elementVectorToByteVector(sharesAll[i], sendBufs[i]);
+  for (int j=0; j<_N; j++) {
+    for (int i = 0; i < nBuckets; i++) {
+      randSharePairsAll[j][i*2] = sharesAll[j][i]; // even slots: single share 
+      randSharePairsAll[j][i*2+1] = dSharesAll[j][i]; // odd slots: double Share
     }
   }
-  vector<vector<byte>> recBufs(_N, vector<byte>(nBuckets*_fieldByteSize, 0));
-  _comm.allToT(sendBufs, recBufs);
+  recordDeltShares(sharesAll, _deltShares);
+  vector<vector<byte>> sendBufs(_N, vector<byte>(nBuckets*_fieldByteSize*2));
+  for (int i=0; i<_N; i++) {
+    _field->elementVectorToByteVector(randSharePairsAll[i], sendBufs[i]);
+  }
+  vector<vector<byte>> recBufs(_N, vector<byte>(nBuckets*_fieldByteSize*2, 0));
+  _comm.allToAll(sendBufs, recBufs, false);
   int count = 0;
 
   vector<FieldType> bufferIn(_N), bufferIn2(_N), bufferOut(_N), bufferOut2(_N);
   for (int i=0; i<nBuckets; i++) {
     for (int j=0; j<_N; j++) {
-      if (_TMaskRev[j]) {
-        bufferIn[j] =
-          _field->bytesToElement(recBufs[j].data() + i*_fieldByteSize);
-      } else {
-        bufferIn[j] = prgRecShares[j][i];
-      }
-      bufferIn2[j] = prgRecShares2T[j][i];
+      bufferIn[j] =
+        _field->bytesToElement(recBufs[j].data() + 2*i*_fieldByteSize);
+      bufferIn2[j] =
+        _field->bytesToElement(recBufs[j].data() + (2*i+1)*_fieldByteSize);
       _recShares.push_back(bufferIn[j]);
       _dealerIds.push_back(j);
     }
@@ -1164,32 +1087,32 @@ makeTwiseDoubleShares(int nRands, vector<FieldType> &randSharePairs, vector<int>
 
   vector<FieldType> secrets;
   vector<vector<FieldType>> dSharesAll, sharesAll,
-    prgRecShares(_N, vector<FieldType>(nBuckets, _zero)),
-    prgRecShares2T(_N, vector<FieldType>(nBuckets, _zero));
-  make2TSharesPrg(nBuckets, secrets, dSharesAll, prgRecShares2T);
-  makeTSharesPrg(secrets, sharesAll, prgRecShares);
+    randSharePairsAll(_N, vector<FieldType>(nBuckets*2));
+  make2TShares(nBuckets, secrets, dSharesAll);
+  makeTShares(secrets, sharesAll);
   // mix single and double shares
-  recordDeltShares(sharesAll, _deltShares);
-  vector<vector<byte>> sendBufs(_N, vector<byte>(nBuckets*_fieldByteSize));
-  for (int i=0; i<_N; i++) {
-    if (_TMask[i]) {
-      _field->elementVectorToByteVector(sharesAll[i], sendBufs[i]);
+  for (int j=0; j<_N; j++) {
+    for (int i = 0; i < nBuckets; i++) {
+      randSharePairsAll[j][i*2] = sharesAll[j][i]; // even slots: single share 
+      randSharePairsAll[j][i*2+1] = dSharesAll[j][i]; // odd slots: double Share
     }
   }
-  vector<vector<byte>> recBufs(_N, vector<byte>(nBuckets*_fieldByteSize, 0));
-  _comm.allToT(sendBufs, recBufs);
+  recordDeltShares(sharesAll, _deltShares);
+  vector<vector<byte>> sendBufs(_N, vector<byte>(nBuckets*_fieldByteSize*2));
+  for (int i=0; i<_N; i++) {
+    _field->elementVectorToByteVector(randSharePairsAll[i], sendBufs[i]);
+  }
+  vector<vector<byte>> recBufs(_N, vector<byte>(nBuckets*_fieldByteSize*2, 0));
+  _comm.allToAll(sendBufs, recBufs, false);
   int count = 0;
   vector<FieldType> bufferIn(_N), bufferIn2(_N), bufferOut(_N), bufferOut2(_N),
     toExpand(nBuckets*(_N-_T)), toExpand2(nBuckets*(_N-_T));
   for (int i=0; i<nBuckets; i++) {
     for (int j=0; j<_N; j++) {
-      if (_TMaskRev[j]) {
-        bufferIn[j] =
-          _field->bytesToElement(recBufs[j].data() + i*_fieldByteSize);
-      } else {
-        bufferIn[j] = prgRecShares[j][i];
-      }
-      bufferIn2[j] = prgRecShares2T[j][i];
+      bufferIn[j] =
+        _field->bytesToElement(recBufs[j].data() + 2*i*_fieldByteSize);
+      bufferIn2[j] =
+        _field->bytesToElement(recBufs[j].data() + (2*i+1)*_fieldByteSize);
       _recShares.push_back(bufferIn[j]);
       _dealerIds.push_back(j);
     }
@@ -1824,21 +1747,15 @@ batchMultSpread(vector<FieldType>& e2Shares, vector<FieldType>& e1Shares) {
     secrets[i] = getSecret(e2ShareAll);
   }
   // TODO: [ask] makeTShares sets Disp shares to zero? (used in analyze sharing)
-  vector<vector<FieldType>> eSharesAll(_N, vector<FieldType>(myLoad, _zero)),
-    prgRecShares(_N);
-  for (int i=0; i<_N; i++) {
-    prgRecShares[i].resize(e2SharesLoad[i].size());
-  }
-  makeTSharesPrg(secrets, eSharesAll, prgRecShares);
+  vector<vector<FieldType>> eSharesAll(_N, vector<FieldType>(myLoad, _zero));
+  makeTShares(secrets, eSharesAll);
   recordDeltShares(eSharesAll, _deltShares);
   vector<vector<byte>> e1SharesByte(_N, vector<byte>(maxLoad * _fieldByteSize, 0)),
     sendBufs(_N, vector<byte>(maxLoad * _fieldByteSize, 0));
   for (int i=0; i < _N; i++) {
-    if (_TMask[i]) {
-      _field->elementVectorToByteVector(eSharesAll[i], sendBufs[i]);
-    }
+    _field->elementVectorToByteVector(eSharesAll[i], sendBufs[i]);
   }
-  _comm.allToT(sendBufs, e1SharesByte);
+  _comm.allToAll(sendBufs, e1SharesByte, false);
   
   // for (int i=0; i<_N; i++) {
   //   e1SharesByte[i].resize(e2SharesLoad[i].size() * _fieldByteSize);
@@ -1851,17 +1768,42 @@ batchMultSpread(vector<FieldType>& e2Shares, vector<FieldType>& e1Shares) {
   e1Shares.resize(nMults);
   for (int i = 0; i < nMults; i++) {
     int king = _twiseKingIds[i + _twiseOffset];
-    if (_TMaskRev[king]) {
-      e1Shares[i] = _field->bytesToElement(e1SharesByte[king].data() +
-                                           (idx[king]++) * _fieldByteSize);
-    } else {
-      e1Shares[i] = prgRecShares[king][idx[king]++];
-    }
+    e1Shares[i] = _field->bytesToElement(e1SharesByte[king].data() +
+                                         (idx[king]++) * _fieldByteSize);
     _e1ShareIdx.push_back(_recShares.size()); // record e1ShareIdx
     // record received shares and their dealers
     _dealerIds.push_back(king);
     _recShares.push_back(e1Shares[i]);
   }
+}
+
+template <class FieldType>
+void ProtocolParty<FieldType>::
+DNMultVec(vector<FieldType>& a, vector<FieldType>& b,
+          vector<FieldType>& cShares, int groupSize) {
+  // assuming semi-honest
+  int totalLength = a.size();
+  int nMults = (totalLength + groupSize - 1) / groupSize;
+  // -- generate the 2t-sharings for xy - r
+  vector<FieldType> e2Shares(nMults, _zero), e1Shares(nMults, _zero);
+  
+  for (int group_i = 0; group_i < nMults; group_i++) {
+    int group_end = ((group_i + 1) * groupSize > totalLength) ?
+      totalLength : (group_i + 1) * groupSize;
+    for (int i = group_i * groupSize; i < group_end; i++) {
+      e2Shares[group_i] += a[i] * b[i];
+    }
+    e2Shares[group_i] = e2Shares[group_i] -
+      _doubleShares[(_doubleOffset + group_i)*2 +1];
+  }
+
+  batchMultSpread(e2Shares, e1Shares);
+  // -- compute xy - r + [r]_t = t-sharing of xy
+  for (int group_i = 0; group_i < nMults; group_i++) {
+    cShares[group_i] = _doubleShares[(_doubleOffset + group_i)*2] + e1Shares[group_i];
+  }
+
+  _doubleOffset += nMults;
 }
 
 template <class FieldType>

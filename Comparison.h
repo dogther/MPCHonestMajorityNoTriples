@@ -55,11 +55,16 @@ class CompareGate
 		CompareGate(ProtocolParty<FieldType> *ptr,int siz,int blk_siz,int m_partyID,TemplateField<FieldType> *field,int n,string inputf);
 		~CompareGate();
 		long transElement(FieldType tmp);
-		void run();
-		void runOnline();
-		void runOffline();
-		void verificationPhase();
-		void outputPhase(vector<FieldType> &res,string f);
+  void run();
+  void inputPhase();
+  void runOnline();
+  void runOffline();
+  void verificationPhase();
+  void writeOutput(vector<FieldType> &res,string f);
+
+
+
+  
 		// Compgate functions
 		void getRandomBitShare(int num,vector<FieldType> &res, vector<vector<FieldType> > &bits);
 		//void genRandom01(int num,vector<vector<FieldType>> &bin,vector<FieldType> &val);
@@ -353,6 +358,8 @@ inline void CompareGate<ZpMersenne127Element>::compSqrInverse(vector<ZpMersenne1
 	template <class FieldType>
 int CompareGate<FieldType>::generateBitShares(int num)
 {
+	_bitShareOffset = 0;
+	_bitSharesValue.clear();
 	auto _t1 = high_resolution_clock::now();
 	int suc_cnt=0;
 	_bitShareOffset = 0;
@@ -362,7 +369,7 @@ int CompareGate<FieldType>::generateBitShares(int num)
 		cout<<"Required #bitshare:"<<tot<<endl;
 	vector<FieldType> tempShares,resShares,secrets;
 	_bitSharesValue.resize(tot);
-	helper->getRandomShares(tot, tempShares);
+	helper->getPadShares(tot, tempShares);
 	if(flag_print)
 		cout<<"Generating random shares, #"<<tot<<endl;
 	/*vector<FieldType> PlainText;
@@ -380,7 +387,7 @@ int CompareGate<FieldType>::generateBitShares(int num)
 		cout<<"DNMult finished"<<endl;
 
         verificationPhase();    // fix: verify before open mult results
-	helper->openShare(tot,resShares,secrets);
+	helper->openTShares(tot, true, resShares,secrets);
 	auto _t2 = high_resolution_clock::now();
 	if(flag_print)
 	{
@@ -914,7 +921,7 @@ void CompareGate<FieldType>::compHalfP(vector<FieldType> &X,vector<FieldType> &d
 		//resvec.resize(1); 
 		resvec[0]=res;*/
 	}
-	helper->openShare(tot,resvec,tmpvec);
+	helper->openTShares(tot, true, resvec,tmpvec);
 	if(flag_print)
 	{
 		cout<<"compHalfP::Successfully opened shares"<<endl;
@@ -1348,7 +1355,7 @@ void CompareGate<FieldType>::compFanInOr(int num,vector<vector<FieldType> >&a, v
 	_append(chkC,C);
 	//if(flag_print)
 	//	cout<<"fanInOr:helper->openShare(C):"<<C.size()<<endl;
-	helper->openShare(tot,C,Cres);
+	helper->openTShares(tot, true, C,Cres);
 	//if(flag_print)
 	//	cout<<"Share(C) opened"<<endl;
 	//step 4: retrieve the polynomials and do calculations
@@ -1431,8 +1438,8 @@ void CompareGate<FieldType>::getRandomInvPairs(int num, vector<FieldType> &b, ve
 	b.resize(2*num-1);
 	if(flag_print)
 		cout<<b.size()<<" "<<bp.size();
-	helper->getRandomShares(num,b);
-	helper->getRandomShares(num,bp);
+	helper->getPadShares(num,b);
+	helper->getPadShares(num,bp);
 	if(flag_print)
 		cout<<b.size()<<" "<<bp.size();
 	for(int i=num; i<2*num-1; i++)
@@ -1448,7 +1455,7 @@ void CompareGate<FieldType>::getRandomInvPairs(int num, vector<FieldType> &b, ve
 	_append(chkC,B);
 	if(flag_print)
 		cout<<"genInv:helper->openShare,size:"<<B.size()<<endl;
-	helper->openShare(2*num-1,B,Bres);
+	helper->openTShares(2*num-1, true, B,Bres);
 	if(flag_print)
 		cout<<"genInv:DNMult finished"<<endl;
 	invb.resize(num);
@@ -1546,7 +1553,7 @@ TruncPRSecure(vector<FieldType> &aShares,vector<FieldType> &res) {
   for (int i=0; i<tot; i++) {
     cShares[i] = (khalf + aShares[i]) + rShares[i];
   }
-  helper->openShare(tot, cShares, cClear);
+  helper->openTShares(tot, true, cShares, cClear);
 
   // compute overflow bit (r < c) by secure comparison
   vector<FieldType> overflowShares(tot, _zero);
@@ -1614,7 +1621,7 @@ void CompareGate<FieldType>::TruncPR(vector<FieldType> &a,vector<FieldType> &res
 		r2[i] = r2[i] + a[i] + khalf;
 		//notice: r2 should be smaller than about 2^120, overwhelmed by a[i]
 	}
-	helper->openShare(tot,r2,r2open);
+	helper->openTShares(tot, true, r2,r2open);
 	if(flag_print)
 		cout<<"TruncPR: r2 passed"<<endl;
 	if(res.size()<tot)
@@ -1731,7 +1738,7 @@ void CompareGate<FieldType>::SoftThres(vector<FieldType> &thres, vector<FieldTyp
 	_append(chkC,tmp3);
 	if(flag_print)
 		cout<<"end of mult1"<<endl;
-	helper->DNMultVec(tmp3, a, add3, 1); 
+	helper->DNMultVec(tmp3, a, add3, 1);
 	_append(chkA,tmp3);
 	_append(chkB,a);
 	_append(chkC,add3);
@@ -1779,13 +1786,10 @@ inline void CompareGate<ZpMersenne127Element>::doubleInverse(ZpMersenne127Elemen
 	res = ZpMersenne127Element(bas / a.elem);
 }
 
-	template<class FieldType>
-void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, vector<vector<FieldType> > & Ai, vector<FieldType> &bi, vector<FieldType> &res)
-	/*{
-	  }
-	  template<>
-	  inline void CompareGate<ZZ_p>::runLasso(int iter,ZZ_p lambda, ZZ_p rho, vector<vector<ZZ_p> > & Ai, vector<ZZ_p> &bi, vector<ZZ_p> &res)
-	 */
+template<class FieldType>
+void CompareGate<FieldType>::
+runLasso(int iter,FieldType lambda, FieldType rho,
+         vector<vector<FieldType> >& Ai, vector<FieldType> &bi, vector<FieldType> &res)
 {
 	const int dim = Ai.size(); //Ai: dim * dim matrix, bi: dim * 1 vector
 	int N = helper->getN();
@@ -1798,15 +1802,12 @@ void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, 
 	if(flag_print)
 		cout<<"InvN:"<<N<<","<<invN<<endl;
 
-
 	//each party are holding #dim shares, shareOfW[i][j] means the share of the w_i[j]
 	//shareofAi[i][j] means the share of Ai[j] 
 	vector<vector<FieldType> > shareOfW(N),shareOfU(N),shareOfB(N);
 	vector<vector<vector<FieldType> > > shareOfA(N);
 	vector<FieldType> shareOfZ;
 	// -- prepare the shares for the input
-	// also need to prepare shares for P and P/2
-	//step 1: send and receive shares of Ai, bi, w, z and u 
 	if(flag_print)
 		cout<<"Lasso:step 1:"<<endl;
 	auto _t01 = high_resolution_clock::now();
@@ -1840,7 +1841,7 @@ void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, 
 
 
 	//receive shares of other parties
-	vector<FieldType> _chk;
+
 	for(int i=0; i<N; i++) //each
 	{
 		int _tot = 0;
@@ -1853,8 +1854,9 @@ void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, 
 				shareOfA[i][l1][l2] = recBufElements[i][_tot++];
 			if(flag_print)
 			{
-				cout<<"opening A"<<endl;
-				helper->openShare(dim,shareOfA[i][l1],_chk);
+                          vector<FieldType> _chk;
+                          cout<<"opening A"<<endl;
+                          helper->openTShares(dim, true, shareOfA[i][l1],_chk);
 			}
 		}
 		//Bi
@@ -1875,73 +1877,31 @@ void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, 
         }
         //Z shares: just set to 0
         shareOfZ.resize(dim, *(field->GetZero()));
-        //zero shares: TODO: remove if zero shares are not used?
-        /*int zero_cnt = 50000;
-        vector<vector<byte>> sendSharesByte;
-        if (m_partyID == 0) {
-          vector<FieldType> zeros(zero_cnt, *(field->GetZero()));
-          vector<vector<FieldType>> fullSharesVec;
-          helper->makeTShares(zeros, fullSharesVec);
-          sendSharesByte.resize(N, vector<byte>(zero_cnt * fieldByteSize));
-          for (int i=0; i<N; i++) {
-            field->elementVectorToByteVector(fullSharesVec[i], sendSharesByte[i]);
-          }
-        }
-        vector<byte> zeroSharesByte(zero_cnt * fieldByteSize);
-        helper->_comm.oneToAll(zeroSharesByte, sendSharesByte, 0);
-        if(flag_print) {
-          cout << "received zero shares" << endl;
-        }
 
-        _zeroShares.resize(zero_cnt);
-        for (int i=0; i<zero_cnt; i++) {
-          _zeroShares[i] = field->bytesToElement(zeroSharesByte.data() + i * fieldByteSize);
-        }
-		*/
+        // inputPhase
 
-	//the following are double number testing
-	/*if(flag_print)
-	  {
-	  vector<FieldType> a1,a2,a3;
-	  TruncPR(shareOfB[0],a2);
-	  helper->openShare(dim,a2,a3);
-	  for(int i=0; i<dim; i++)
-	  cout<<bi[i]<<"->"<<a3[i]<<endl;
-	  }
-
-	//testing softThres
-	if(flag_print)
-	{
-	vector<FieldType> _res,_ans;
-	helper->openShare(dim,shareOfB[0],_ans);
-	cout<<"Thres:"<<endl;
-	for(int i=0; i<dim; i++)
-	cout<<_ans[i]<<endl;
-	helper->openShare(dim,shareOfA[0][0],_ans);
-	cout<<"A:"<<endl;
-	for(int i=0; i<dim; i++)
-	cout<<_ans[i]<<endl;
-	SoftThres(bi,shareOfA[0][0],_res);
-	cout<<"checking valid of softThres"<<endl;
-	helper->openShare(dim,_res,_ans);
-	cout<<"passed, checking softThres"<<endl;
-	for(int i=0; i<dim; i++)
-	cout<<Ai[0][i]<<"->"<<_ans[i]<<endl;
-	}*/
 	//start iteration.
 	auto _t02 = high_resolution_clock::now();
-	cout<<"runLasso:preparation time:"<<duration_cast<microseconds>(_t02-_t01).count()<<endl;
+        for (int curIter = 0; curIter < iter; curIter++) {
+          runOffline();
+
+          runOnline();
+
+          // verificationPhase
+          // verifySharing
+          // tag
+        }
+
+        // outputPhase
+
+        
 	for(int _t=0; _t<iter; _t++)
 	{
+
+
+          
 		auto _t01 = time(NULL);
-		/*if(flag_print)
-		{
-			cout<<"Iteration "<<_t<<", value of z:"<<endl;
-			vector<FieldType> _tmp;
-			helper->openShare(dim,shareOfZ,_tmp);
-			for(int i=0; i<dim; i++)
-				cout<<_tmp[i];
-				}*/
+
 		//step 4(a)
 		vector<FieldType> tmp,tmp1,tmp2;
 		for(int i=0; i<N; i++) //repeat with each w[i]
@@ -2029,10 +1989,10 @@ void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, 
 				  cout<<_tt1[o]<<"->"<<_tt2[o]<<endl;
 				  }*/
                           shareOfW[i][j] = tmp3[_c++];
-				// shareOfW[i][j] = field->GetElement(0);
-				// for(int l=0; l<dim; l++,_c++)
-				// 	shareOfW[i][j] = shareOfW[i][j] + tmp3[_c];
-				// _c+=dim;
+                          // shareOfW[i][j] = field->GetElement(0);
+                          // for(int l=0; l<dim; l++,_c++)
+                          //   shareOfW[i][j] = shareOfW[i][j] + tmp3[_c];
+                          // _c+=dim;
 			}
 		}
 		/*if(flag_print)
@@ -2125,7 +2085,7 @@ void CompareGate<FieldType>::runLasso(int iter,FieldType lambda, FieldType rho, 
 	// cout<<"Getting result:"<<endl;
 
         verificationPhase();    // fix: verify before open mult results
-	helper->openShare(dim,shareOfZ,res);
+	helper->openTShares(dim, true, shareOfZ,res);
 	// for(int i=0; i<dim; i++)
 	// {
 	//	cout<<res[i]<<",";
@@ -2183,133 +2143,67 @@ template <class FieldType> void CompareGate<FieldType>::readLassoInputs()
 		cout<<"Reading lasso ended"<<endl;
 }
 
-template <class FieldType> void CompareGate<FieldType>::run() {
-	int tottme = 0;
-	if(flag_print)
-		cout<<"comparegate::running"<<endl;
-	auto _t1 = time(NULL);
-	for (iteration = 0; iteration < times; iteration++) {
+template <class FieldType>
+void CompareGate<FieldType>::
+inputPhase() {
 
-		auto t1start = high_resolution_clock::now();
-		timer->startSubTask("Offline", iteration);
-		runOffline();
-		timer->endSubTask("Offline", iteration);
-		timer->startSubTask("Online", iteration);
-		runOnline();
-		timer->endSubTask("Online", iteration);
-		auto t2end = high_resolution_clock::now();
+}
 
-		auto duration = duration_cast<milliseconds>(t2end - t1start).count();
-		protocolTimer->totalTimeArr[iteration] = duration;
-		tottme += duration;
-	}
-	auto _t2 = time(NULL);
-	cout<<"Total time:"<<tottme<<endl;
-	cout<<"run() Total Real time"<<_t2-_t1<<endl;
-	// cout<<"Gates:"<<numOfMultGates + numOfCompareGates<<endl;
-	// cout<<"Ave time:"<<(double)tottme / times / (numOfMultGates + numOfCompareGates);
+template <class FieldType>
+void CompareGate<FieldType>::
+run() {
+  int tottme = 0;
+  readLassoInputs();
+  vector<FieldType> res;
+  for (iteration = 0; iteration < times; iteration++) {
+    res.clear();
+    auto t1start = high_resolution_clock::now();
+    //rho = 10, lambda = 0.1
+    runLasso(n_iter, field->GetElement((1ull<<(_m))/10), FieldType(10), _Ai, _bi, res);
+
+    auto t2end = high_resolution_clock::now();
+    auto duration = duration_cast<milliseconds>(t2end - t1start).count();
+    tottme += duration;
+    
+  }
+  writeOutput(res, "");
+  cout<<"Total time for " << times << " iterations: "
+      << tottme << " ms" <<endl;
 }
 
 template <class FieldType> void CompareGate<FieldType>::runOffline() {
-	//if(flag_print)
-	cout<<"runOffline()"<<endl;
-	auto t1 = high_resolution_clock::now();
-	timer->startSubTask("preparationPhase", iteration);
-	auto _t1 = time(NULL);
-	readLassoInputs();
-	auto _t2 = time(NULL);
-	cout<<"reading real time:"<<_t2-_t1<<endl;
-	_t1 = time(NULL);
-	int dim = _Ai.size();
-	int cnt = 40 * dim * dim  * n_iter * eleSize / 10;
-	//uncomment this for 90 * 90
-	cnt = cnt * 2 / 80;
-	//cnt *= 6;
-	//if(flag_print)
-	cout<<"Entering helper->preparation"<<endl;
-	// TODO: tighten cnt
-	// cnt *= 2;
-	// if (helper->preparationPhase(cnt, cnt) == false) {
-	if (helper->preparationPhase(cnt, cnt*3) == false) {
-		if (flag_print) {
-			cout << "preparationPhase failed" << '\n';
-		}
-		return;
-	} else {
-		if (flag_print) {
-			cout << "finish Preparation Phase" << '\n';
-		}
-	}
-	_t2 = time(NULL);
-	cout<<"Preparation real time:"<<_t2-_t1<<endl;
-	_t1=time(NULL);
-	cout<<"generating bit"<<endl;
-	int cnt_bit = 18 * n_iter * dim * dim / 10;
-	cnt_bit = cnt_bit / 40;
-	//uncomment this for 16*16
-	//cnt_bit*= 6;
-	generateBitShares(cnt_bit);
-	_t2 = time(NULL);
-	cout<<"Generating Bit time:"<<_t2-_t1<<endl;
-	cout<<"bit generation done"<<endl;
-	timer->endSubTask("preparationPhase", iteration);
-	auto t2 = high_resolution_clock::now();
-
-	auto duration = duration_cast<milliseconds>(t2 - t1).count();
-	protocolTimer->preparationPhaseArr[iteration] = duration;
+  //if(flag_print)
+  cout<<"runOffline()"<<endl;
+  int dim = _Ai.size();
+  int cnt = 40 * dim * dim  * n_iter * eleSize / 10;
+  cnt = cnt * 2 / 80;
+  cnt = cnt / 10;         // per iteration cost should roughly be 1/10
+  // TODO: start here
+  // if (helper->preparationPhase(cnt, cnt*3) == false) {
+  //   cout << "preparationPhase faild" << endl;
+  //   abort();
+  // }
+  cout<<"generating bit"<<endl;
+  int cnt_bit = 18 * n_iter * dim * dim / 10;
+  cnt_bit = cnt_bit / 40;
+  //uncomment this for 16*16
+  //cnt_bit*= 6;
+  generateBitShares(cnt_bit);
+  cout<<"bit generation done"<<endl;
 }
 
 template <class FieldType> void CompareGate<FieldType>::runOnline() {
 
-	auto t1 = high_resolution_clock::now();
-	//timer->startSubTask("inputPhase", iteration);
-	//inputPhase();
-	//timer->endSubTask("inputPhase", iteration);
-	auto t2 = high_resolution_clock::now();
-
-	auto duration = duration_cast<milliseconds>(t2 - t1).count();
-	protocolTimer->inputPreparationArr[iteration] = duration;
-
-	t1 = high_resolution_clock::now();
 	vector<FieldType> res;
-	timer->startSubTask("ComputePhase", iteration);
-	//rho = 10, lambda = 0.1
 	runLasso(n_iter, field->GetElement((1ull<<(_m))/10), FieldType(10), _Ai, _bi, res);
-	timer->endSubTask("ComputePhase", iteration);
-	t2 = high_resolution_clock::now();
-
-	duration = duration_cast<milliseconds>(t2 - t1).count();
-	protocolTimer->computationPhaseArr[iteration] = duration;
-
-	t1 = high_resolution_clock::now();
-	timer->startSubTask("VerificationPhase", iteration);
-	//ONLY FOR TEST PURPOSE
-	// verificationPhase();
-	if (flag_print)
-		cout << "verification finished" << endl;
-	timer->endSubTask("VerificationPhase", iteration);
-	t2 = high_resolution_clock::now();
-	duration = duration_cast<milliseconds>(t2 - t1).count();
-	protocolTimer->verificationPhaseArr[iteration] = duration;
-
-	t1 = high_resolution_clock::now();
-	timer->startSubTask("outputPhase", iteration);
-	outputPhase(res,"");
-	timer->endSubTask("outputPhase", iteration);
-	t2 = high_resolution_clock::now();
-
-	duration = duration_cast<milliseconds>(t2 - t1).count();
-	protocolTimer->outputPhaseArr[iteration] = duration;
-	cout<<"TruncPR time:"<<TruncPR_t<<endl;
-	cout<<"Compare time:"<<Compare_t<<endl;
-	cout<<"Veri time:"<<Veri_t<<endl;
+        
 }
 
 	template<class FieldType>
 void CompareGate<FieldType>::verificationPhase()
 {
 	auto _t1 = high_resolution_clock::now();
-	FieldType l = helper->randomCoin();
+	FieldType l = helper->challenge();
 	FieldType r = l;
 	FieldType c(0);
 	if(flag_print)
@@ -2329,7 +2223,8 @@ void CompareGate<FieldType>::verificationPhase()
           c += chkCVec[i] * r;
           r = r * l;
         }
-	helper->compressVerifyVec(chkA,chkB,c);
+        // TODO: here
+	// helper->compressVerifyVec(chkA,chkB,c);
 	// verify all mults up to now.
 	chkA.clear();
 	chkB.clear();
@@ -2343,7 +2238,7 @@ void CompareGate<FieldType>::verificationPhase()
 
 //only party 0 outputs
 	template<class FieldType>
-void CompareGate<FieldType>::outputPhase(vector<FieldType> &res,string f)
+void CompareGate<FieldType>::writeOutput(vector<FieldType> &res,string f)
 {
 	if(m_partyID!=0) return;
 	ofstream ouf;
