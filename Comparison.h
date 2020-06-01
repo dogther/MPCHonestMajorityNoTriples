@@ -1639,9 +1639,9 @@ template <class FieldType> void CompareGate<FieldType>::runOffline() {
   int cnt_bit = 6 * dim;
   cnt_bit = cnt_bit * 3 / 2;
   if (helper->preparationPhase(n_iter*5*2,
-                               cnt_bit*eleSize*2+n_iter*2,
-                               n_iter*60*2,
-                               cnt_bit*eleSize*3*2) == false) {
+                               cnt_bit*eleSize+n_iter*8,
+                               n_iter*60*3/2,
+                               cnt_bit*eleSize*3) == false) {
     cout << "preparationPhase faild" << endl;
     abort();
   }
