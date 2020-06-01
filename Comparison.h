@@ -1635,14 +1635,13 @@ template <class FieldType> void CompareGate<FieldType>::runOffline() {
   int cnt = 40 * dim * dim  * n_iter * eleSize / 10;
   cnt = cnt * 2 / 80;
   //cnt = cnt / 10;         // per iteration cost should roughly be 1/10
-  cnt *= 2;
   // TODO: change for gas dataset
   int cnt_bit = 6 * dim;
   cnt_bit *= 10;
-  if (helper->preparationPhase(n_iter*5,
-                               cnt_bit*eleSize+n_iter*2,
-                               n_iter*60,
-                               cnt_bit*eleSize*3) == false) {
+  if (helper->preparationPhase(n_iter*5*2,
+                               cnt_bit*eleSize*2+n_iter*2,
+                               n_iter*60*2,
+                               cnt_bit*eleSize*3*2) == false) {
     cout << "preparationPhase faild" << endl;
     abort();
   }
